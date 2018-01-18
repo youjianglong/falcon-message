@@ -9,5 +9,16 @@
         "agentId": "",
         "secret": "",
         "encodingAESKey": ""
+    },
+    "qcloud_sms": {
+        "enable": false,
+        "debug": false,
+        "timeout": 0,
+        "sign": "",
+        "appid": "",
+        "appkey": "",
+        "tpl_id": 123,
+        "way": "",
+        "receivers":[]
     }
 }

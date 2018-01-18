@@ -9,9 +9,9 @@ import (
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
-	"github.com/sdvdxl/falcon-message/config"
-	"github.com/sdvdxl/falcon-message/sender"
-	"github.com/sdvdxl/falcon-message/util"
+	"github.com/youjianglong/falcon-message/config"
+	"github.com/youjianglong/falcon-message/sender"
+	"github.com/youjianglong/falcon-message/util"
 	"github.com/tylerb/graceful"
 )
 
@@ -30,13 +30,14 @@ const (
 	// IMDingPrefix 钉钉 前缀
 	IMDingPrefix = "[ding]:"
 	// IMWexinPrefix 微信前缀
-	// IMWexinPrefix = "[wexin]:"
+	IMWexinPrefix = "[wexin]:"
 )
 
 var (
 	cfg  config.Config
 	ding *sender.DingTalk
 	wx   *sender.Weixin
+	qs *sender.QCloudSMS
 )
 
 func main() {
@@ -50,12 +51,14 @@ func main() {
 		wx = sender.NewWeixin(cfg.Weixin.CorpID, cfg.Weixin.Secret)
 		go wx.GetAccessToken()
 	}
-
+	if cfg.QCloudSms.Enable {
+		qs = sender.NewQCloudSMS(cfg.QCloudSms)
+	}
 	engine := echo.New()
 	engine.Server.Addr = cfg.Addr
 	server := &graceful.Server{Timeout: time.Second * 10, Server: engine.Server, Logger: graceful.DefaultLogger()}
 	engine.Use(middleware.Recover())
-	// engine.Use(middleware.Logger())
+	engine.Use(middleware.Logger())
 	api := engine.Group("/api/v1")
 	api.GET("/wechat/auth", wxAuth)
 	api.POST("/message", func(c echo.Context) error {
@@ -69,15 +72,38 @@ func main() {
 
 		content = util.HandleContent(content)
 		if strings.HasPrefix(tos, IMDingPrefix) { //是钉钉
-			token := tos[len(IMDingPrefix):]
 			if cfg.DingTalk.Enable {
+				token := tos[len(IMDingPrefix):]
 				ding.Send(token, content)
 			}
-		} else { //微信
+		} else if strings.HasPrefix(tos, IMWexinPrefix) { //微信
 			if cfg.Weixin.Enable {
+				tos := tos[len(IMWexinPrefix):]
 				if err := wx.Send(tos, content); err != nil {
 					return echo.NewHTTPError(500, err.Error())
 				}
+			}
+		}
+
+		return nil
+	})
+
+	api.POST("/sms", func(c echo.Context) error {
+		tos := c.FormValue("tos")
+		content := c.FormValue("content")
+		log.Println("tos:", tos, " content:", content)
+		if content == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "content is requied")
+		}
+		content = util.HandleContent(content)
+		params:=[]string{
+			time.Now().Format("于15:04:05"),
+			content,
+		}
+		if cfg.QCloudSms.Enable {
+			if err := qs.SendWithTpl(tos,params); err != nil {
+				log.Println("[sms]",err)
+				return echo.NewHTTPError(500, err.Error())
 			}
 		}
 
